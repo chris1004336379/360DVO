@@ -90,7 +90,7 @@ class Patchifier(nn.Module):
         
         self.fnet = SphericalEncoder(output_dim=128, norm_fn='instance')
         self.inet = SphericalEncoder(output_dim=DIM, norm_fn='none')
-    
+
     def __image_gradient(self, images):
         gray = ((images + 0.5) * (255.0 / 2)).sum(dim=2)
         dx = gray[...,:-1,1:] - gray[...,:-1,:-1]
@@ -98,8 +98,15 @@ class Patchifier(nn.Module):
         g = torch.sqrt(dx**2 + dy**2)
         g = F.avg_pool2d(g, 4, 4)
         return g
-
-    # 用于从输入图像中提取特征块。
+    
+    def __feature_gradient(self, fmap):
+        # fmap shape: [b, n, c, h, w]
+        dx = fmap[..., :-1, 1:] - fmap[..., :-1, :-1]  # [b, n, c, h-1, w-1]
+        dy = fmap[..., 1:, :-1] - fmap[..., :-1, :-1]  # [b, n, c, h-1, w-1]
+        g = torch.sqrt(dx**2 + dy**2 + 1e-8).mean(dim=2)  # [b, n, h-1, w-1]
+        g = F.pad(g, (0, 1, 0, 1))
+        return g
+    
     def forward(self, images, patches_per_image=96, disps=None, gradient_bias=False, return_color=False, timeit=False):
         """ extract patches from input images """
 
@@ -111,9 +118,8 @@ class Patchifier(nn.Module):
         with Timer("Patchify", enabled=timeit):
             # bias patch selection towards regions with high gradient
             if gradient_bias:
-                # 计算图像的梯度
                 g = self.__image_gradient(images)
- 
+
                 x = torch.randint(1, w-1, size=[n, 3*patches_per_image], device="cuda")
                 y = torch.randint(1, h-1, size=[n, 3*patches_per_image], device="cuda")
 
@@ -124,7 +130,6 @@ class Patchifier(nn.Module):
                 ix = torch.argsort(g, dim=-1)
                 x = torch.gather(x, 1, ix[:, -patches_per_image:])
                 y = torch.gather(y, 1, ix[:, -patches_per_image:])
-
             else:
                 x = torch.randint(1, w-1, size=[n, patches_per_image], device="cuda")
                 y = torch.randint(1, h-1, size=[n, patches_per_image], device="cuda")
