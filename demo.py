@@ -84,7 +84,7 @@ if __name__ == '__main__':
     parser.add_argument('--save_trajectory', action="store_true")
     parser.add_argument('--save_ply', action="store_true")
     parser.add_argument('--plot', action="store_true")
-    parser.add_argument('--name', type=str, help='name your run', default='result')
+    parser.add_argument('--name', type=str, help='name your run', default='test')
     
     args = parser.parse_args()
 
