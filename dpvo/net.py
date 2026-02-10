@@ -118,7 +118,8 @@ class Patchifier(nn.Module):
         with Timer("Patchify", enabled=timeit):
             # bias patch selection towards regions with high gradient
             if gradient_bias:
-                g = self.__image_gradient(images)
+                # g = self.__image_gradient(images)
+                g = self.__feature_gradient(fmap)
 
                 x = torch.randint(1, w-1, size=[n, 3*patches_per_image], device="cuda")
                 y = torch.randint(1, h-1, size=[n, 3*patches_per_image], device="cuda")
