@@ -7,7 +7,7 @@ ROOT = osp.dirname(osp.abspath(__file__))
 
 
 setup(
-    name='dpvo',
+    name='360dvo',
     packages=find_packages(),
     ext_modules=[
         CUDAExtension('cuda_corr',

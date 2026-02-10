@@ -13,76 +13,71 @@ def coords_grid(ht, wd, **kwargs):
     return torch.stack([x, y], dim=-1)
 
 
-def iproj(patches, intrinsics):
+def iproj(patches, intrinsics, remove_outlier=False):
     """ inverse projection """
-    x, y, d = patches.unbind(dim=2)
+    x, y, disp = patches.unbind(dim=2)
     fx, fy, cx, cy = intrinsics[...,None,None].unbind(dim=2)
 
     lon = (x - cx) / fx
     lat = (y - cy) / fy
-
-    xn = torch.div(torch.cos(lat) * torch.sin(lon), d)
-    yn = torch.div(-torch.sin(lat), d)
-    zn = torch.div(torch.cos(lat) * torch.cos(lon), d)
+    depth = 1 / disp
+    xn = torch.cos(lat) * torch.sin(lon) * depth
+    yn = -torch.sin(lat) * depth
+    zn = torch.cos(lat) * torch.cos(lon) * depth
     X = torch.stack([xn, yn, zn, torch.ones_like(xn)], dim=-1)
     return X
- 
 
-def proj(X, intrinsics, depth=False):
+
+def proj(X, intrinsics, return_depth=False):
     """ projection """
 
     X, Y, Z, W = X.unbind(dim=-1)
     fx, fy, cx, cy = intrinsics[...,None,None].unbind(dim=2)
 
-    # d = 0.01 * torch.ones_like(Z)
-    # d[Z > 0.01] = 1.0 / Z[Z > 0.01]
-    # d = torch.ones_like(Z)
-    # d[Z.abs() > 0.1] = 1.0 / Z[Z.abs() > 0.1]
+    depth = torch.sqrt(torch.square(X) + torch.square(Y) + torch.square(Z))
+    disp = 1 / depth.clamp(min=0.5*MIN_DEPTH)
+    x = fx * torch.arctan2(X,Z) + cx
+    y = -fy * torch.arcsin(disp * Y) + cy
 
-    d = 1.0 / torch.sqrt(torch.square(X) + torch.square(Y) + torch.square(Z))
-    x = fx * torch.arctan(X / Z) + cx
-    y = -fy * torch.arcsin(d * Y) + cy
-
-    if depth:
-        return torch.stack([x, y, d], dim=-1)
+    if return_depth:
+        return torch.stack([x, y, disp], dim=-1)
 
     return torch.stack([x, y], dim=-1)
 
 
-def transform(poses, patches, intrinsics, ii, jj, kk, depth=False, valid=False, jacobian=False, tonly=False):
+def transform(poses, patches, intrinsics, ii, jj, kk, return_depth=False, valid=False, jacobian=False, tonly=False):
     """ projective transform """
 
     # backproject
     X0 = iproj(patches[:,kk], intrinsics[:,ii])
-
+    
     # transform
     Gij = poses[:, jj] * poses[:, ii].inv()
 
     if tonly:
         Gij[...,3:] = torch.as_tensor([0,0,0,1], device=Gij.device)
-
     X1 = Gij[:,:,None,None] * X0
-
+    
     # project
-    x1 = proj(X1, intrinsics[:,jj], depth)
-
+    x1 = proj(X1, intrinsics[:,jj], return_depth)
 
     if jacobian:
         p = X1.shape[2]
         X, Y, Z, W = X1[...,p//2 ,p//2,:].unbind(dim=-1)
-        x, y, d0 = patches[:,kk].unbind(dim=-1)
+
+        x, y, d0 = patches[:,kk,:,p//2,p//2].unbind(dim=2)
+
         o = torch.zeros_like(W)
-        i = torch.zeros_like(W)
 
         fx, fy, cx, cy = intrinsics[:,jj].unbind(dim=-1)
 
         d = 1.0 / torch.sqrt(torch.square(X) + torch.square(Y) + torch.square(Z))
         d2 = d * d
         dxz = 1.0 / torch.sqrt(torch.square(X) + torch.square(Z))
-        dxz2 = dxz * dxz
+        dxz2 = dxz * dxz 
 
-        lon = (x - cx) / fx
-        lat = (y - cy) / fy
+        lon = (x - cx) / fx 
+        lat = (y - cy) / fy 
 
         Ja = torch.stack([
             W,  o,  o,  o,  Z, -Y,
@@ -90,7 +85,7 @@ def transform(poses, patches, intrinsics, ii, jj, kk, depth=False, valid=False, 
             o,  o,  W,  Y, -X,  o,
             o,  o,  o,  o,  o,  o,
         ], dim=-1).view(1, len(ii), 4, 6)
-        
+
         Jp = torch.stack([
             fx*Z*dxz2, o, -fx*X*dxz2, o,
             fy*d2*X*Y*dxz, -fy*d2/dxz, fy*d2*Y*Z*dxz, o,
@@ -101,24 +96,27 @@ def transform(poses, patches, intrinsics, ii, jj, kk, depth=False, valid=False, 
             torch.sin(lat) / (d0 * d0), 
             -torch.cos(lat) * torch.cos(lon) / (d0 * d0),
             o,
-        ], dim=-1).view(1, len(ii), 1, 4)
+        ], dim=-1).view(1, len(ii), 4, 1)
 
         Jj = torch.matmul(Jp, Ja)
         Ji = -Gij[:,:,None].adjT(Jj)
         
         Jz = torch.matmul(Jp, Gij.matrix())
+
         Jd = torch.matmul(Jz, Jq)
 
-        return x1, (d > 0.2).float(), (Ji, Jj, Jd)
+        return x1, (d > MIN_DEPTH).float(), (Ji, Jj, Jd)
 
     if valid:
-        return x1, (X1[...,2] > 0.2).float()
+        return x1, (X1[...,2] > MIN_DEPTH).float()
         
     return x1
 
 def point_cloud(poses, patches, intrinsics, ix):
     """ generate point cloud from patches """
-    return poses[:,ix,None,None].inv() * iproj(patches, intrinsics[:,ix])
+    
+    
+    return poses[:,ix,None,None].inv() * iproj(patches, intrinsics[:,ix], remove_outlier=True)
 
 
 def flow_mag(poses, patches, intrinsics, ii, jj, kk, beta=0.3):

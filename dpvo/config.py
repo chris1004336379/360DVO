@@ -3,13 +3,14 @@ from yacs.config import CfgNode as CN
 _C = CN()
 
 # max number of keyframes
-_C.BUFFER_SIZE = 2048
+# _C.BUFFER_SIZE = 2048
+_C.BUFFER_SIZE = 4096
 
 # bias patch selection towards high gradient regions?
 _C.GRADIENT_BIAS = True
 
 # VO config (increase for better accuracy)
-_C.PATCHES_PER_FRAME = 80
+_C.PATCHES_PER_FRAME = 96
 _C.REMOVAL_WINDOW = 20
 _C.OPTIMIZATION_WINDOW = 12
 _C.PATCH_LIFETIME = 12

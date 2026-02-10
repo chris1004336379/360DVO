@@ -14,7 +14,7 @@
 #define NUM_THREADS 256
 #define NUM_BLOCKS(batch_size) ((batch_size + NUM_THREADS - 1) / NUM_THREADS)
 
-// 旋转
+// rotation
 __device__ void
 actSO3(const float *q, const float *X, float *Y) {
   float uv[3];
@@ -27,7 +27,7 @@ actSO3(const float *q, const float *X, float *Y) {
   Y[2] = X[2] + q[3]*uv[2] + (q[0]*uv[1] - q[1]*uv[0]);
 }
 
-// 旋转+平移
+// rotation + translation
 __device__  void
 actSE3(const float *t, const float *q, const float *X, float *Y) {
   actSO3(q, X, Y);
@@ -37,7 +37,7 @@ actSE3(const float *t, const float *q, const float *X, float *Y) {
   Y[2] += X[3] * t[2];
 }
 
-// 求伴随矩阵
+// adjancent of SE3 action
 __device__ void
 adjSE3(const float *t, const float *q, const float *X, float *Y) {
   float qinv[4] = {-q[0], -q[1], -q[2], q[3]};
@@ -254,11 +254,11 @@ __global__ void reprojection_residuals_and_hessian(
     float qj[4] = { poses[jx][3], poses[jx][4], poses[jx][5], poses[jx][6] };
 
     float Xi[4], Xj[4], Jd[4], Jd_tr[4];
-    float lon, lat, d0;
+    float lon, lat, d0, d0_inv, d0_inv2;
     lon = (patches[kx][0][1][1] - cx) / fx;
     lat = (patches[kx][1][1][1] - cy) / fy;
     d0_inv = 1 / patches[kx][2][1][1];
-    d0_inv2 = d0_inv * d0_inv
+    d0_inv2 = d0_inv * d0_inv;
     Xi[0] = cos(lat) * sin(lon) * d0_inv;
     Xi[1] = -sin(lat) * d0_inv;
     Xi[2] = cos(lat) * cos(lon) * d0_inv;
@@ -280,12 +280,12 @@ __global__ void reprojection_residuals_and_hessian(
     const float W = Xj[3];
 
     const float d_i = sqrt(X*X + Y*Y + Z*Z);
-    const float d = (d_i >= 0.2) ? 1.0 / d_i : 0.0; 
+    const float d = (d_i >= 0.2) ? 1.0 / d_i : 5.0; 
     const float d2 = d * d;
     const float xz = 1.0 / sqrt(X*X+Z*Z);
     const float xz2 = xz * xz;
 
-    const float x1 = fx * atan(X / Z) + cx;
+    const float x1 = fx * atan2(X, Z) + cx;
     const float y1 = fy * -asin(d * Y) + cy;
 
     const float rx = target[n][0] - x1;
@@ -478,12 +478,12 @@ std::vector<torch::Tensor> cuda_ba(
   weight = weight.view({-1, 2});
 
   const int num = ii.size(0);
-  torch::Tensor B = torch::empty({6*N, 6*N}, opts);//H矩阵
-  torch::Tensor E = torch::empty({6*N, 1*M}, opts);//H矩阵对应的残差，对应M个patch
+  torch::Tensor B = torch::empty({6*N, 6*N}, opts);
+  torch::Tensor E = torch::empty({6*N, 1*M}, opts);
   torch::Tensor C = torch::empty({M}, opts);
 
-  torch::Tensor v = torch::empty({6*N}, opts);//速度
-  torch::Tensor u = torch::empty({1*M}, opts);//M个patch的速度的残差
+  torch::Tensor v = torch::empty({6*N}, opts);
+  torch::Tensor u = torch::empty({1*M}, opts);
 
   for (int itr=0; itr < iterations; itr++) {
 
@@ -577,7 +577,7 @@ torch::Tensor cuda_reproject(
 {
 
   const int N = ii.size(0);
-  const int P = patches.size(3); // patch size
+  const int P = patches.size(3);
 
   poses = poses.view({-1, 7});
   patches = patches.view({-1,3,P,P});

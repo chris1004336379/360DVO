@@ -10,7 +10,7 @@ class Logger:
         self.writer = None
         self.name = name
         self.scheduler = scheduler
-
+        
     def _print_training_status(self):
         if self.writer is None:
             self.writer = SummaryWriter("runs/{}".format(self.name))
@@ -23,7 +23,9 @@ class Logger:
         
         # print the training status
         print(training_str + metrics_str)
-
+        with open('log/' + self.name + '.txt', 'a') as file:
+            file.write(training_str + metrics_str + '\n')
+        
         for key in self.running_loss:
             val = self.running_loss[key] / SUM_FREQ
             self.writer.add_scalar(key, val, self.total_steps)
@@ -53,4 +55,5 @@ class Logger:
 
     def close(self):
         self.writer.close()
+        self.file.close()
 

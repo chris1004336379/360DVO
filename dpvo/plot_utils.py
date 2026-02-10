@@ -16,7 +16,7 @@ def make_traj(args) -> PoseTrajectory3D:
     return deepcopy(args)
 
 def best_plotmode(traj):
-    _, i1, i2 = np.argsort(np.var(traj.positions_xyz, axis=0))
+    i0, i1, i2 = np.argsort(np.var(traj.positions_xyz, axis=0))
     plot_axes = "xyz"[i2] + "xyz"[i1]
     return getattr(plot.PlotMode, plot_axes)
 
